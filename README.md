@@ -1,6 +1,5 @@
-<div style="width: 100%;" align="center">
-# Cognibot
-</div>
+
+<h1 align="center">Cognibot</h1>
 <br>
 ![home](https://github.com/cognifly/cognibot/blob/master/img/cognibot.png)
 
@@ -40,7 +39,7 @@ func main() {
 	fetch := cognibot.New()
 	fetch.Seed("http://localhost:2016/")
 
-	fetch.Start()
+	fetch.Start(1)
 }
 ```
 
@@ -55,10 +54,9 @@ web page at a URL.
 A built in **Robot** exclusion protocal parser that determines whether an extracted 
 link passes the robot restrictions.
 
-A **Queue or URL Frontier** containing URLs yet to be fetched by the crwal thread or 
-threads.
+A **Queue or URL Frontier** containing URLs yet to be fetched by the crawl thread or crawl goroutine.
 
-A **Visited** list that logs all the URLs fetched by the fecth mobule.
+A **Visited list** containing URLs fetched by the fecth mobule.
 
 A **Parser** module that extracts links from a fetched webpage and saves the webpage to 
 disk.
@@ -70,8 +68,9 @@ in the queue or url frontier
 ### How Cognibot Works
 
 Crawling is performed by the a crawl thread or crawl goroutine. Add the number to Start 
-specifying the number of threads to begin with. If the number of URL in the queue minus 
-the total number in visited is less than 100, cognibot spins up a new thread. see example below.
+specifying the number of threads to begin with. If the length of the queue ***minus** 
+the length of visited is less than 100, cognibot spins up a new crawl thread or crawl goroutine. 
+see example below.
 
 ```go
 package main
@@ -82,7 +81,7 @@ import (
 
 func main() {
 	fetch := cognibot.New()
-	fetch.Seed("http://localhost:2016/", "http://localhost:2017/")
+	fetch.Seed("http://localhost:2016/", "http://localhost:2017/", "http://localhost:2018/")
 
 	fetch.Start(3)
 }
@@ -120,7 +119,7 @@ The [BSD-style license] found in the LICENSE file, the same as cognilog package.
 The collectlinks package source code is under the [MIT license] (details in
 the source file).
 
-[Name]=> kampsy kampamba chanda
-[Email]=> kampsycode@gmail.com
-[Github]=> https://github.com/kampsy
-[Social]=> google.com/+kampambachanda
+Name *kampsy kampamba chanda*
+Email *kampsycode@gmail.com*
+Github *https://github.com/kampsy*
+Social *google.com/+kampambachanda*
