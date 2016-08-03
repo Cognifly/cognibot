@@ -1,20 +1,8 @@
 <div style="width: 100%;" align="center">
-  <div style="font: 40pt Roboto, sans-serif;font-weight: 300; color: #CC181E;">
-    Cognibot
-  </div>
-  <div style="margin-top: 15px;font: 15px Roboto, sans-serif;font-weight: 300; color: #21252B;">
-    Beta version
-  </div>
-
-  <div style="max-width: 500px;margin-top: 15px;font: 15px Roboto, sans-serif;font-weight: 300; color: #21252B;">
-    Thank you for checking out cognibot. To help us improve, fell free to fork the repository and send us a pull request.
-  </div>
-  <div style="margin-top: 15px;margin-bottom: 15px;font: 15px Roboto, sans-serif;font-weight: 300; color: #21252B;">
-    Crafted with love By Kampamba Chanda.
-  </div>
- </div>
- 
-# cognibot [![build status](https://secure.travis-ci.org/cognifly/cognibot.png)](http://travis-ci.org/cognifly/cognibot) [![GoDoc](https://godoc.org/github.com/cognifly/cognibot)](http://godoc.org/github.com/cognifly/cognibot)
+# Cognibot
+</div>
+<br>
+![home](https://github.com/cognifly/cognibot/blob/master/img/cognibot.png)
 
 Package cognibot provides a simple and concurrent web crawler that follows the robots.txt
 policies and crawl delays.
