@@ -8,6 +8,7 @@ policies and crawl delays.
 
 ## Note
 By default, cognibot only crwals URLs with the same host names as the seeds.
+
 Cognibot is very much inspired by of [fetchbot](https://github.com/PuerkitoBio/fetchbot).
 
 
@@ -21,12 +22,10 @@ The package has two dependencies, [cognilog](https://github.com/cognifly/cognilo
 effective color logging package and [collectlinks](https://github.com/kampsy/collectlinks) a 
 package that collects all URLs from a webpage. 
 
-The [API documentation is available on godoc.org](http://godoc.org/github.com/cognifly/cognibot).
-
 ## Usage
 
-The following example (taken from /example/main.go) shows how to create a Fetch, add seeds and
-start the crwal. 
+The following example shows how to create a Fetch, add seeds and
+start the crawl thread. 
 
 ```go
 package main
