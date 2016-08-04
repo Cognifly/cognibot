@@ -27,6 +27,8 @@ package that collects all URLs from a webpage.
 The following example shows how to create a Fetch, add seeds and
 start the crawl thread. 
 
+Before running cognibot, create a directory called docs.
+
 ```go
 package main
 
