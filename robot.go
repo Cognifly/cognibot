@@ -64,8 +64,8 @@ func isDisallowAll(grp map[string][]string) bool {
 	return false
 }
 
-// ReadBot get http.Response and returns a Robot
-func ReadBot(res *http.Response) *Robot {
+// MakeBot takes an http.Response and returns a Robot
+func MakeBot(res *http.Response) *Robot {
 	var robot = new(Robot)
 	// treat all 4xx errors in the same way. Assume that there are no restrictions.
 	if res.StatusCode >= 400 && res.StatusCode > 500 {

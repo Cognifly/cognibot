@@ -57,12 +57,13 @@ type Fetch struct {
 	crawCount int
 
 	// the frontier or Queue
-	mu    sync.RWMutex
-	Queue []Cmder
-	index int // previous url index
+	mu        sync.RWMutex
+	Queue     []Cmder
+	index     int // previous url index
+	HostCount []string
 
 	// the url visited by crawl threads.
-	vi      sync.RWMutex
+	tex     sync.RWMutex
 	Visited []Cmder
 }
 
@@ -107,6 +108,7 @@ func (f *Fetch) DoRequest(cmd Cmder) (*http.Response, error) {
 func (f *Fetch) addSeed(cmd Cmder) {
 	f.mu.Lock()
 	f.Queue = append(f.Queue, cmd)
+	f.HostCount = append(f.HostCount, cmd.URL().Host)
 	f.mu.Unlock()
 }
 
@@ -118,16 +120,15 @@ func (f *Fetch) Seed(args ...string) {
 		if err != nil {
 			cognilog.Log("red", err)
 		}
-		robot := ReadBot(res)
-		if !robot.FullDisallow { // if robot says FullDisallow false add
+		robot := MakeBot(res)
+		if !robot.FullDisallow { // if not FullDisallow add
 			f.HostInfo = append(f.HostInfo, robot)
 			f.addSeed(NewCmd(str)) // add RootURL to Queue or Frontier.
 		}
-
 	}
 }
 
-// check if two urls are exactly the same.
+// check if a url is present in a slice of cmd's
 func checkURL(sl []Cmder, url *url.URL) bool {
 	for _, cmd := range sl {
 		if cmd.URL().String() == url.String() {
@@ -137,7 +138,7 @@ func checkURL(sl []Cmder, url *url.URL) bool {
 	return false
 }
 
-// The name the page will be given when saved to Disk. For UNIX like systems
+// edit the url of the fetched page. For UNIX like systems
 // sake, remove all / and replace them with _-_
 func docName(url *url.URL) string {
 	slice := strings.Split(url.String(), "/")
@@ -215,6 +216,30 @@ func robExcl(cmd Cmder, info []*Robot) bool {
 	return rootExcl
 }
 
+func count(sl []string, str string) int {
+	var num int
+	for _, s := range sl {
+		if s == str {
+			num++
+		}
+	}
+	return num
+}
+
+func filter(cmd Cmder) bool {
+	str := strings.ToLower(cmd.URL().String())
+	if strings.Contains(str, ".mp3") {
+		return true
+	} else if strings.HasSuffix(str, ".pdf") {
+		return true
+	} else if strings.HasSuffix(str, "doc") {
+		return true
+	} else if strings.Contains(str, "mp4") {
+		return true
+	}
+	return false
+}
+
 // crawl thread that gets the body of a web pages and do lots of things with it,
 // such as collectiong all the links from it and saving it to disk for future use.
 func (f *Fetch) crawl(cr int) {
@@ -260,9 +285,10 @@ func (f *Fetch) crawl(cr int) {
 			if err != nil {
 				continue
 			}
+
 			// lock queue again
 			f.mu.RLock()
-			if checkURL(f.Queue, cmd.URL()) { // if checkURL is true skip
+			if checkURL(f.Queue, cmd.URL()) { // if the url is present in the queue, continue
 				cognilog.LogINFO("magenta", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Already in the Queue skip.]", cmd.URL().String()))
 				f.mu.RUnlock() // unlock before continue
 				continue
@@ -271,6 +297,12 @@ func (f *Fetch) crawl(cr int) {
 			// robot exclusion
 			if !robExcl(cmd, f.HostInfo) {
 				cognilog.LogINFO("magenta", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Disallowed by robot.]", cmd.URL().String()))
+				f.mu.RUnlock() // unlock before continue
+				continue
+			}
+
+			if filter(cmd) {
+				cognilog.LogINFO("red", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Not Accepted]", cmd.URL().String()))
 				f.mu.RUnlock() // unlock before continue
 				continue
 			}
@@ -288,15 +320,24 @@ func (f *Fetch) crawl(cr int) {
 					f.mu.RUnlock()
 					return
 				}
+
+				if count(f.HostCount, cd.URL().Host) > 20 {
+					cognilog.LogINFO("cyan", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [maxed out no slot available]", cd.URL()))
+					f.mu.RUnlock()
+					return
+				}
+				f.HostCount = append(f.HostCount, cd.URL().Host)
+
 				f.Queue = append(f.Queue, cd)
 				cognilog.LogINFO("green", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Appended to Queue]", cd.URL().String()))
 				f.mu.RUnlock()
 			}(cmd)
 		}
+
 		// append cmd to Visited
-		f.vi.RLock()
+		f.tex.RLock()
 		f.Visited = append(f.Visited, lnk)
-		f.vi.RUnlock()
+		f.tex.RUnlock()
 
 		time.Sleep(f.CrawlDelay)
 	}
@@ -304,6 +345,8 @@ func (f *Fetch) crawl(cr int) {
 
 // watch over f.Queue and f.Visited.
 func (f *Fetch) watch(c chan bool) {
+	var deadLock int
+	var str string
 	for {
 		queue := len(f.Queue)
 		visit := len(f.Visited)
@@ -313,14 +356,23 @@ func (f *Fetch) watch(c chan bool) {
 				break
 			}
 		}
-		if queue-visit > 100 {
+		if deadLock > 5 {
+			c <- true
+			break
+		}
+		if fmt.Sprintf("%d%d", queue, visit) == str {
+			deadLock++
+		}
+		str = fmt.Sprintf("%d%d", queue, visit)
+
+		if queue-visit > 10 {
 			num := f.crawCount + 1
 			go f.crawl(num)
 			f.crawCount = num
 			cognilog.LogINFO("cyan", "go crwal", fmt.Sprintf("Started crawl thread [%d]", num))
 		}
 
-		cognilog.LogINFO("yellow", "status", fmt.Sprintf("Queue[%d] and Visited[%d]", queue, visit))
+		cognilog.LogINFO("yellow", "status", fmt.Sprintf("Queue[%d]  Visited[%d]", queue, visit))
 		time.Sleep(time.Duration(1) * time.Second)
 	}
 }
