@@ -7,7 +7,7 @@ Package cognibot provides a simple and concurrent web crawler that follows the r
 policies and crawl delays.
 
 ## Note
-By default, cognibot only crwals URLs with the same host names as the seeds.
+By default, cognibot only crawls URLs with the same host names as the seeds.
 
 Cognibot is very much inspired by of [fetchbot](https://github.com/PuerkitoBio/fetchbot).
 
