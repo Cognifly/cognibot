@@ -6,6 +6,7 @@ package cognibot
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -128,6 +129,39 @@ func (f *Fetch) Seed(args ...string) {
 	}
 }
 
+func jsnLinks(s string) []string {
+	config, err := ioutil.ReadFile(s)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	jsn := make(map[string][]string)
+	err = json.Unmarshal(config, &jsn)
+	if err != nil {
+		fmt.Println(err)
+	}
+	// slice of stopwords
+	links := jsn["links"]
+	return links
+}
+
+// Seed creates a robot type, appends it to hostinfo and appends RootURL to
+// the Queue.
+func (f *Fetch) SeedSlice(jsn string) {
+	args := jsnLinks(jsn)
+	for _, str := range args {
+		res, err := f.DoRequest(BotCmd(str))
+		if err != nil {
+			cognilog.Log("red", err)
+		}
+		robot := MakeBot(res)
+		if !robot.FullDisallow { // if not FullDisallow add
+			f.HostInfo = append(f.HostInfo, robot)
+			f.addSeed(NewCmd(str)) // add RootURL to Queue or Frontier.
+		}
+	}
+}
+
 // check if a url is present in a slice of cmd's
 func checkURL(sl []Cmder, url *url.URL) bool {
 	for _, cmd := range sl {
@@ -234,6 +268,14 @@ func filter(cmd Cmder) bool {
 		return true
 	} else if strings.HasSuffix(str, "doc") {
 		return true
+	} else if strings.Contains(str, "ico") {
+		return true
+	} else if strings.Contains(str, "jpeg") {
+		return true
+	} else if strings.Contains(str, "jpg") {
+		return true
+	} else if strings.Contains(str, "png") {
+		return true
 	} else if strings.Contains(str, "mp4") {
 		return true
 	}
@@ -321,7 +363,7 @@ func (f *Fetch) crawl(cr int) {
 					return
 				}
 
-				if count(f.HostCount, cd.URL().Host) > 20 {
+				if count(f.HostCount, cd.URL().Host) > 50 {
 					cognilog.LogINFO("cyan", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [maxed out no slot available]", cd.URL()))
 					f.mu.RUnlock()
 					return
