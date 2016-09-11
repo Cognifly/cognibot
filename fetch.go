@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,9 @@ const (
 
 	// DefaultUserAgent is the default user agent string.
 	DefaultUserAgent = "Cognibot (https://github.com/Cognifly/cognibot)"
+
+	// The default dir for saving web pages
+	docs = "docs"
 )
 
 // Doer defines the method required to use a type as HttpClient.
@@ -62,6 +66,7 @@ type Fetch struct {
 	Queue     []Cmder
 	index     int // previous url index
 	HostCount []string
+	maxPages  int
 
 	// the url visited by crawl threads.
 	tex     sync.RWMutex
@@ -145,8 +150,15 @@ func jsnLinks(s string) []string {
 	return links
 }
 
-// Seed creates a robot type, appends it to hostinfo and appends RootURL to
-// the Queue.
+// SeedSlice gets the links from a json file of type
+/*
+	{
+	"links": [
+	"localhost:2016/", "localhost:2017/"
+	]
+}
+*/
+// It creates a robot type, appends it to hostinfo and RootURL to the Queue.
 func (f *Fetch) SeedSlice(jsn string) {
 	args := jsnLinks(jsn)
 	for _, str := range args {
@@ -172,8 +184,8 @@ func checkURL(sl []Cmder, url *url.URL) bool {
 	return false
 }
 
-// edit the url of the fetched page. For UNIX like systems
-// sake, remove all / and replace them with _-_
+// Edit the url of the fetched page.
+// For UNIX like systems sake, remove all / and replace them with _-_
 func docName(url *url.URL) string {
 	slice := strings.Split(url.String(), "/")
 	name := strings.Join(slice, "_-_")
@@ -343,28 +355,29 @@ func (f *Fetch) crawl(cr int) {
 				continue
 			}
 
+			// if its a blob or pdf skip
 			if filter(cmd) {
 				cognilog.LogINFO("red", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Not Accepted]", cmd.URL().String()))
 				f.mu.RUnlock() // unlock before continue
 				continue
 			}
-
-			func(cd Cmder) { // appends cmd to Queue
+			// appends cmd to Queue
+			func(cd Cmder) {
 				var host bool
-				for _, rob := range f.HostInfo {
+				for _, rob := range f.HostInfo { // check for existing host
 					if rob.RootURL.Host == cd.URL().Host {
 						host = true
 						break
 					}
 				}
 				if host == false {
-					cognilog.LogINFO("magenta", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Not found in HostInfo Hash table]", cd.URL()))
+					cognilog.LogINFO("magenta", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Host Not found in HostInfo Hash table]", cd.URL()))
 					f.mu.RUnlock()
 					return
 				}
 
-				if count(f.HostCount, cd.URL().Host) > 50 {
-					cognilog.LogINFO("cyan", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [maxed out no slot available]", cd.URL()))
+				if count(f.HostCount, cd.URL().Host) > f.maxPages {
+					cognilog.LogINFO("cyan", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Maxed out no slot available]", cd.URL()))
 					f.mu.RUnlock()
 					return
 				}
@@ -433,5 +446,19 @@ func (f *Fetch) Start(num int) {
 			break
 		}
 		time.Sleep(time.Duration(1) * time.Second)
+	}
+}
+
+// ClearDocs removes old docs.
+func ClearDocs() {
+	// rm docs and create a new one.
+	path := "./" + docs
+	err := os.RemoveAll(path)
+	if err != nil {
+		cognilog.Log("red", err)
+	}
+	err = os.Mkdir(path, 0755)
+	if err != nil {
+		cognilog.Log("red", err)
 	}
 }
