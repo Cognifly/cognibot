@@ -82,6 +82,7 @@ import (
 
 func main() {
 	fetch := cognibot.New()
+	fecth.MaxPages = 50
 	fetch.Seed("http://localhost:2016/", "http://localhost:2017/", "http://localhost:2018/")
 
 	fetch.Start(3)
@@ -103,6 +104,7 @@ under consideration passes the robot restrictions.
 ### Cognibot Options
 
 Cognibot has a number of fields that provide further customization:
+* MaxPages : By default, the max is 100.
 
 * HttpClient : By default, the Fetcher uses the net/http default Client to make requests. A
 different client can be set on the Fetcher.HttpClient field.

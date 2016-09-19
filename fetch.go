@@ -28,6 +28,9 @@ const (
 	// specified delay.
 	DefaultCrawlDelay = 5 * time.Second
 
+	// DefaultCrawlTimeout crawl duration for the client.
+	DefaultCrawlTimeout = 30 * time.Second
+
 	// DefaultUserAgent is the default user agent string.
 	DefaultUserAgent = "Cognibot (https://github.com/Cognifly/cognibot)"
 
@@ -43,13 +46,15 @@ type Doer interface {
 
 // A Fetch defines the parameters for running a web crawler.
 type Fetch struct {
-	// Default delay to use between requests to a same host if there is no robots.txt
-	// crawl delay or if DisablePoliteness is true.
-	CrawlDelay time.Duration
+	// MaxPages the number of web pages each host is allowed to download.
+	// The default is 100.
+	MaxPages int
+
+	// Timeout how long the HTTPClient will wait for a response.
+	Timeout time.Duration
 
 	// The *http.Client to use for the requests. If nil, defaults to the net/http
-	// package's default client. Should be HTTPClient to comply with go lint, but
-	// this is a breaking change, won't fix.
+	// package's default client.
 	HTTPClient Doer
 
 	// The user-agent string to use for robots.txt validation and URL fetching.
@@ -66,11 +71,9 @@ type Fetch struct {
 	Queue     []Cmder
 	index     int // previous url index
 	HostCount []string
-	maxPages  int
 
-	// the url visited by crawl threads.
 	tex     sync.RWMutex
-	Visited []Cmder
+	Visited []Cmder // urls visited
 }
 
 // New returns an initialized Fetch.
@@ -84,8 +87,11 @@ func New() *Fetch {
 	}
 	Client := http.DefaultClient
 	Client.Transport = tr
+	Client.Timeout = DefaultCrawlTimeout
+
 	return &Fetch{
-		CrawlDelay: DefaultCrawlDelay,
+		MaxPages:   100,
+		Timeout:    DefaultCrawlTimeout,
 		HTTPClient: Client,
 		UserAgent:  DefaultUserAgent,
 	}
@@ -130,6 +136,7 @@ func (f *Fetch) Seed(args ...string) {
 		if !robot.FullDisallow { // if not FullDisallow add
 			f.HostInfo = append(f.HostInfo, robot)
 			f.addSeed(NewCmd(str)) // add RootURL to Queue or Frontier.
+			cognilog.LogINFO("green", "added to Queue", str)
 		}
 	}
 }
@@ -137,17 +144,39 @@ func (f *Fetch) Seed(args ...string) {
 func jsnLinks(s string) []string {
 	config, err := ioutil.ReadFile(s)
 	if err != nil {
-		fmt.Println(err)
+		cognilog.Log("red", err)
 	}
 
 	jsn := make(map[string][]string)
 	err = json.Unmarshal(config, &jsn)
 	if err != nil {
-		fmt.Println(err)
+		cognilog.Log("red", err)
 	}
 	// slice of stopwords
 	links := jsn["links"]
 	return links
+}
+
+// checks if a string is a value in a slice
+func check(sl []string, s string) bool {
+	var chk bool
+	for _, str := range sl {
+		if str == s {
+			chk = true
+		}
+	}
+	return chk
+}
+
+// resolv removes terms that are duplicated in the slice.
+func resolv(sl []string) []string {
+	var term []string
+	for _, s := range sl {
+		if check(term, s) == false {
+			term = append(term, s)
+		}
+	}
+	return term
 }
 
 // SeedSlice gets the links from a json file of type
@@ -161,15 +190,20 @@ func jsnLinks(s string) []string {
 // It creates a robot type, appends it to hostinfo and RootURL to the Queue.
 func (f *Fetch) SeedSlice(jsn string) {
 	args := jsnLinks(jsn)
-	for _, str := range args {
+	cln := resolv(args)
+	for _, str := range cln {
 		res, err := f.DoRequest(BotCmd(str))
 		if err != nil {
 			cognilog.Log("red", err)
+			continue
 		}
 		robot := MakeBot(res)
 		if !robot.FullDisallow { // if not FullDisallow add
 			f.HostInfo = append(f.HostInfo, robot)
 			f.addSeed(NewCmd(str)) // add RootURL to Queue or Frontier.
+			cognilog.LogINFO("green", "Root added", str)
+		} else {
+			cognilog.LogINFO("red", "Root Not added", str)
 		}
 	}
 }
@@ -290,6 +324,8 @@ func filter(cmd Cmder) bool {
 		return true
 	} else if strings.Contains(str, "mp4") {
 		return true
+	} else if strings.Contains(str, "xlsx") {
+		return true
 	}
 	return false
 }
@@ -313,30 +349,63 @@ func (f *Fetch) crawl(cr int) {
 		f.mu.RUnlock()
 		cognilog.LogINFO("cyan", lnk.Method(), fmt.Sprintf("%v", lnk.URL().String()))
 		res, err := f.DoRequest(lnk)
-		if err != nil || res.StatusCode == 404 {
+		if err != nil || res.StatusCode > 300 {
 			if err == nil {
 				cognilog.LogINFO("red", fmt.Sprintf("Crawl %d 404", cr), " [Page not found]")
+				// append cmd to Visited
+				f.tex.RLock()
+				f.Visited = append(f.Visited, lnk)
+				f.tex.RUnlock()
 				continue
 			}
-			cognilog.LogINFO("red", fmt.Sprintf("Crawl %d [Request error]", cr), err)
+			cognilog.LogINFO("red", fmt.Sprintf("Crawl %d [request not 200 ok]", cr), err)
+			// append cmd to Visited
+			f.tex.RLock()
+			f.Visited = append(f.Visited, lnk)
+			f.tex.RUnlock()
 			continue
 		}
 		// write the page to disk
 		byt, err := ioutil.ReadAll(res.Body)
 		if err != nil {
 			cognilog.LogINFO("red", fmt.Sprintf("Crawl %d body", cr), err)
-			return
+			// append cmd to Visited
+			f.tex.RLock()
+			f.Visited = append(f.Visited, lnk)
+			f.tex.RUnlock()
+			continue
 		}
 		err = ioutil.WriteFile("docs/"+docName(lnk.URL()), byt, 0755)
 		if err != nil {
 			cognilog.LogINFO("red", fmt.Sprintf("Crawl %d write ", cr), err)
-			return
+			// append cmd to Visited
+			f.tex.RLock()
+			f.Visited = append(f.Visited, lnk)
+			f.tex.RUnlock()
+			continue
 		}
 		redr := strings.NewReader(string(byt))
 		anchColl := collectlinks.All(redr)
 		for _, a := range anchColl {
 			cmd, err := parseCmd(a, lnk.URL())
 			if err != nil {
+				continue
+			}
+
+			// skip if Host maxed out
+			if count(f.HostCount, cmd.URL().Host) >= f.MaxPages {
+				continue
+			}
+
+			// skip if resource not available
+			res, err := f.DoRequest(cmd)
+			if err != nil || res.StatusCode > 300 {
+				if err == nil {
+					cognilog.LogINFO("red", fmt.Sprintf("Crawl %d error", cr), "page not found")
+					res.Body.Close()
+					continue
+				}
+				cognilog.LogINFO("red", fmt.Sprintf("Crawl %d response not 200", cr), err)
 				continue
 			}
 
@@ -371,20 +440,20 @@ func (f *Fetch) crawl(cr int) {
 					}
 				}
 				if host == false {
-					cognilog.LogINFO("magenta", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Host Not found in HostInfo Hash table]", cd.URL()))
+					cognilog.LogINFO("magenta", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Host Not white listed]", cd.URL().Host))
 					f.mu.RUnlock()
 					return
 				}
 
-				if count(f.HostCount, cd.URL().Host) > f.maxPages {
-					cognilog.LogINFO("cyan", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Maxed out no slot available]", cd.URL()))
+				if count(f.HostCount, cd.URL().Host) >= f.MaxPages {
+					cognilog.LogINFO("white", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Host slots maxed out]", cd.URL().Host))
 					f.mu.RUnlock()
 					return
 				}
 				f.HostCount = append(f.HostCount, cd.URL().Host)
 
 				f.Queue = append(f.Queue, cd)
-				cognilog.LogINFO("green", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [Appended to Queue]", cd.URL().String()))
+				cognilog.LogINFO("green", fmt.Sprintf("Crawl %d", cr), fmt.Sprintf("%v [URL add to Queue]", cd.URL().String()))
 				f.mu.RUnlock()
 			}(cmd)
 		}
@@ -394,14 +463,14 @@ func (f *Fetch) crawl(cr int) {
 		f.Visited = append(f.Visited, lnk)
 		f.tex.RUnlock()
 
-		time.Sleep(f.CrawlDelay)
+		res.Body.Close()
+
+		time.Sleep(DefaultCrawlDelay)
 	}
 }
 
 // watch over f.Queue and f.Visited.
 func (f *Fetch) watch(c chan bool) {
-	var deadLock int
-	var str string
 	for {
 		queue := len(f.Queue)
 		visit := len(f.Visited)
@@ -410,21 +479,6 @@ func (f *Fetch) watch(c chan bool) {
 				c <- true
 				break
 			}
-		}
-		if deadLock > 5 {
-			c <- true
-			break
-		}
-		if fmt.Sprintf("%d%d", queue, visit) == str {
-			deadLock++
-		}
-		str = fmt.Sprintf("%d%d", queue, visit)
-
-		if queue-visit > 10 {
-			num := f.crawCount + 1
-			go f.crawl(num)
-			f.crawCount = num
-			cognilog.LogINFO("cyan", "go crwal", fmt.Sprintf("Started crawl thread [%d]", num))
 		}
 
 		cognilog.LogINFO("yellow", "status", fmt.Sprintf("Queue[%d]  Visited[%d]", queue, visit))
